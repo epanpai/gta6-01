@@ -6,17 +6,17 @@
 
 An original open-world crime game for make.fun's **gta6-01** bounty: a
 sun-soaked coastal city to explore on foot and by car, with traffic and
-pedestrians, cars to steal, a wanted level with police who respond, six
-story missions, combat, a HUD with a minimap, a start screen and saves.
-Every name, character, vehicle, story, sound and piece of art is original —
-nothing from Rockstar Games or any other commercial game.
+pedestrians, cars to steal, a wanted level with police who respond, six story
+missions, combat, a HUD with a minimap, a start screen and saves. Every name,
+character, vehicle, story, sound and piece of art is original — nothing from
+Rockstar Games or any other commercial game.
 
 ## The city
 
-**Solmar Bay** is a 14×14-block coastal city: downtown towers, a plaza,
-parks with ponds, a marina, and Palmera Beach along the south shore. You play
-**Jax Moreno**, a wheelman pulled back into the life by fixer **Lena Cruz**
-and crew boss **Big T**.
+**Solmar Bay** is a 14×14-block coastal city: downtown towers, a plaza with
+City Hall, parks with ponds, a marina on the east shore, and Palmera Beach
+along the south. You play **Jax Moreno**, a wheelman pulled back into the
+life by fixer **Lena Cruz** and crew boss **Big T**.
 
 ## How to play
 
@@ -26,9 +26,9 @@ and crew boss **Big T**.
   get out. Stealing a car raises your wanted level.
 - **Wanted** — crimes raise your stars; police cars and foot cops hunt you.
   Break line of sight and lay low until the stars fade — or get busted.
-- **Missions** — drive to the yellow **!** marker to start one of six story
-  missions, from stealing your first car to cracking the City Hall vault.
-- **Side jobs** — taxi fares and street cash keep your pockets full.
+- **Missions** — follow the yellow **!** marker through six story missions,
+  from stealing your first car to cracking the City Hall vault.
+- **Side jobs** — taxi fares keep your pockets full.
 - **P** pause · **M** mute · **R** restart from save. Progress saves
   automatically (money, missions, position).
 
@@ -44,9 +44,9 @@ sound and music loop is synthesized live with WebAudio.
 ## Layout
 
 - `game/` — the playable game (`index.html` + `src/` modules)
-- `game/src/config.js` — world constants & tuning
-- `game/src/city.js` — procedural city generation
-- `game/src/entities.js` — cars, pedestrians, particles
+- `game/src/config.js` — world constants, tuning & mission data
+- `game/src/city.js` — procedural city generation & collision
+- `game/src/entities.js` — player, traffic, pedestrians, car physics
 - `game/src/police.js` — wanted level & police AI
 - `game/src/missions.js` — story missions & taxi jobs
 - `game/src/combat.js` — shooting & armed rivals

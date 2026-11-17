@@ -1,18 +1,16 @@
-// Save / load. One job: persist money, mission progress and the player's
-// spot in the city to localStorage, and read it back.
-const KEY = 'solmar-bay-save-v1';
+// localStorage save / load. Progress only — no account, no network.
 
-export function saveGame(world) {
+const KEY = 'solmarbay-save-v2';
+
+export function saveGame(G) {
   try {
-    const p = world.player;
     const data = {
-      money: Math.floor(world.money),
-      missionIndex: world.missions.index,
-      completed: world.missions.completed,
-      totalEarned: world.missions.totalEarned,
-      x: Math.round(p.x),
-      y: Math.round(p.y),
-      health: Math.round(p.health),
+      cash: Math.round(G.cash),
+      missionIndex: G.missionIndex,
+      completed: G.missionsDone.slice(),
+      px: Math.round(G.player.x),
+      py: Math.round(G.player.y),
+      health: Math.round(G.player.hp),
       savedAt: Date.now(),
     };
     localStorage.setItem(KEY, JSON.stringify(data));
@@ -27,7 +25,7 @@ export function loadGame() {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const d = JSON.parse(raw);
-    if (typeof d.money !== 'number' || typeof d.missionIndex !== 'number') return null;
+    if (typeof d.cash !== 'number' || typeof d.missionIndex !== 'number') return null;
     return d;
   } catch (e) {
     return null;
@@ -35,7 +33,5 @@ export function loadGame() {
 }
 
 export function clearSave() {
-  try {
-    localStorage.removeItem(KEY);
-  } catch (e) {}
+  try { localStorage.removeItem(KEY); } catch (e) { /* private mode */ }
 }

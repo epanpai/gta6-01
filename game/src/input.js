@@ -1,71 +1,58 @@
-// Keyboard + mouse input. One job: turn raw DOM events into a plain,
-// frame-friendly state object the rest of the game reads.
-export class Input {
-  constructor(canvas) {
-    this.keys = new Set();
-    this.mouseX = 0;
-    this.mouseY = 0;
-    this.mouseDown = false;
-    this.clicked = false; // consumed by the game loop each frame
-    this.pressed = new Set(); // keys pressed this frame (edge-triggered)
-    this.canvas = canvas;
+// Keyboard + mouse state. One shared object the game loop reads each frame.
 
-    window.addEventListener('keydown', (e) => {
-      if (e.repeat) return;
-      this.keys.add(e.code);
-      this.pressed.add(e.code);
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
-        e.preventDefault();
-      }
-    });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
-    window.addEventListener('blur', () => {
-      this.keys.clear();
-      this.mouseDown = false;
-    });
-    canvas.addEventListener('mousemove', (e) => {
+export function createInput(canvas) {
+  const input = {
+    keys: Object.create(null),
+    mouseX: 0,
+    mouseY: 0,
+    mouseDown: false,
+    // Edge-triggered presses, consumed by the loop each frame.
+    pressed: Object.create(null),
+    clicked: false,
+  };
+
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+    if (!input.keys[e.code]) input.pressed[e.code] = true;
+    input.keys[e.code] = true;
+  });
+  window.addEventListener('keyup', (e) => {
+    input.keys[e.code] = false;
+  });
+  window.addEventListener('blur', () => {
+    for (const k of Object.keys(input.keys)) input.keys[k] = false;
+  });
+  canvas.addEventListener('mousemove', (e) => {
+    const r = canvas.getBoundingClientRect();
+    input.mouseX = e.clientX - r.left;
+    input.mouseY = e.clientY - r.top;
+  });
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button === 0) {
+      input.mouseDown = true;
+      input.clicked = true;
       const r = canvas.getBoundingClientRect();
-      this.mouseX = e.clientX - r.left;
-      this.mouseY = e.clientY - r.top;
-    });
-    canvas.addEventListener('mousedown', (e) => {
-      if (e.button === 0) {
-        this.mouseDown = true;
-        this.clicked = true;
-      }
-    });
-    window.addEventListener('mouseup', (e) => {
-      if (e.button === 0) this.mouseDown = false;
-    });
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-  }
-
-  down(code) {
-    return this.keys.has(code);
-  }
-
-  // Edge-triggered: true only on the frame the key went down.
-  wasPressed(code) {
-    return this.pressed.has(code);
-  }
-
-  // WASD / arrows as a normalised -1..1 vector.
-  moveVector() {
-    let x = 0;
-    let y = 0;
-    if (this.down('KeyA') || this.down('ArrowLeft')) x -= 1;
-    if (this.down('KeyD') || this.down('ArrowRight')) x += 1;
-    if (this.down('KeyW') || this.down('ArrowUp')) y -= 1;
-    if (this.down('KeyS') || this.down('ArrowDown')) y += 1;
-    if (x !== 0 && y !== 0) {
-      x *= Math.SQRT1_2;
-      y *= Math.SQRT1_2;
+      input.mouseX = e.clientX - r.left;
+      input.mouseY = e.clientY - r.top;
     }
-    return { x, y };
-  }
+  });
+  window.addEventListener('mouseup', () => {
+    input.mouseDown = false;
+  });
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  return input;
+}
 
-  endFrame() {
-    this.pressed.clear();
-    this.clicked = false;
-  }
+export function down(input, ...codes) {
+  return codes.some((c) => !!input.keys[c]);
+}
+
+// True once on the frame the key went down; call after reading to clear.
+export function wasPressed(input, code) {
+  return !!input.pressed[code];
+}
+
+export function endFrame(input) {
+  for (const k of Object.keys(input.pressed)) input.pressed[k] = false;
+  input.clicked = false;
 }

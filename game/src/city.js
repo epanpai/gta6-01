@@ -1,137 +1,166 @@
-// Solmar Bay — the city itself. One job: generate the road grid, blocks,
-// buildings, parks and the beach deterministically from a seed, and answer
-// "what is at this point" questions (road? sidewalk? inside a building?).
-import { BLOCK, GRID, ROAD_W, WORLD, BEACH_H, COLORS, mulberry32 } from './config.js';
+// Procedural Solmar Bay: a 14x14-block coastal city on a street grid.
+// Streets run along x = i*PITCH and y = j*PITCH; blocks sit between them.
+// The south row is Palmera Beach, the east top corner is the marina.
 
-export class City {
-  constructor(seed) {
-    this.rng = mulberry32(seed);
-    this.roadsX = [];
-    this.roadsY = [];
-    for (let i = 0; i < GRID; i++) {
-      this.roadsX.push(i * BLOCK + BLOCK / 2);
-      this.roadsY.push(i * BLOCK + BLOCK / 2);
-    }
-    this.buildings = [];
-    this.parks = [];
-    this.parkingLots = [];
-    this.trees = [];
-    this.generate();
+import { WORLD, COLORS } from './config.js';
+import { makeRng, range, intRange, pick, clamp } from './rng.js';
+
+const ROOFS = [COLORS.roofA, COLORS.roofB, COLORS.roofC, COLORS.roofD, COLORS.roofE];
+
+export function buildCity(seed) {
+  const rng = makeRng(seed);
+  const { GRID, BLOCK, ROAD, PITCH, SIZE } = WORLD;
+  const city = {
+    seed, size: SIZE,
+    blocks: [], // {bx,by,kind,buildings:[],trees:[],x,y,w,h}
+    water: [], // {x,y,w,h} blocked, drawn as sea
+    streetsX: [], // street centre lines
+    streetsY: [],
+    playerSpawn: { x: 7 * PITCH, y: 6 * PITCH + ROAD / 2 + 30 },
+  };
+  for (let i = 0; i <= GRID; i++) {
+    city.streetsX.push(i * PITCH);
+    city.streetsY.push(i * PITCH);
   }
 
-  generate() {
-    const rng = this.rng;
-    const halfRoad = ROAD_W / 2;
-    for (let bx = 0; bx < GRID - 1; bx++) {
-      for (let by = 0; by < GRID - 1; by++) {
-        const x0 = this.roadsX[bx] + halfRoad + 8;
-        const y0 = this.roadsY[by] + halfRoad + 8;
-        const x1 = this.roadsX[bx + 1] - halfRoad - 8;
-        const y1 = this.roadsY[by + 1] - halfRoad - 8;
-        const w = x1 - x0;
-        const h = y1 - y0;
-        const roll = rng();
-        // South edge blocks (by = GRID-2) are beach-facing: keep them low.
-        if (roll < 0.16) {
-          // Park block
-          this.parks.push({ x: x0, y: y0, w, h });
-          const nTrees = 4 + Math.floor(rng() * 5);
-          for (let i = 0; i < nTrees; i++) {
-            this.trees.push({ x: x0 + 20 + rng() * (w - 40), y: y0 + 20 + rng() * (h - 40), r: 9 + rng() * 6 });
-          }
-          continue;
-        }
-        if (roll < 0.24) {
-          // Parking lot with a few parked cars (spots are filled by World)
-          this.parkingLots.push({ x: x0, y: y0, w, h });
-          continue;
-        }
-        // Buildings: 1 big or 2x2 small ones.
-        const big = rng() < 0.4;
-        if (big) {
-          this.buildings.push(this.makeBuilding(x0 + 8, y0 + 8, w - 16, h - 16, rng));
-        } else {
-          const gw = w / 2;
-          const gh = h / 2;
-          for (let gx = 0; gx < 2; gx++) {
-            for (let gy = 0; gy < 2; gy++) {
-              this.buildings.push(
-                this.makeBuilding(x0 + gx * gw + 6, y0 + gy * gh + 6, gw - 12, gh - 12, rng),
-              );
-            }
-          }
-        }
-        // A tree or two on the block corners
-        if (rng() < 0.5) {
-          this.trees.push({ x: x0 + 12, y: y0 + 12, r: 8 + rng() * 4 });
-        }
-      }
-    }
-    // Landmarks: city hall plaza near the centre, the docks on the east edge.
-    this.landmarks = [
-      { name: 'Solmar City Hall', x: this.roadsX[6], y: this.roadsY[6], kind: 'hall' },
-      { name: 'Marina Docks', x: WORLD - 60, y: this.roadsY[11], kind: 'docks' },
-      { name: 'Palmera Beach', x: this.roadsX[7], y: WORLD - BEACH_H / 2, kind: 'beach' },
-    ];
+  // Pick a few park blocks (never the plaza, garage, warehouse or hall blocks).
+  const reserved = new Set(['7,7', '3,5', '12,8', '2,11', '5,2', '10,3', '6,10']);
+  const parks = new Set();
+  while (parks.size < 5) {
+    const bx = intRange(rng, 1, GRID - 2);
+    const by = intRange(rng, 1, GRID - 2);
+    const k = bx + ',' + by;
+    if (!reserved.has(k)) parks.add(k);
   }
 
-  makeBuilding(x, y, w, h, rng) {
-    const color = COLORS.buildingRoof[Math.floor(rng() * COLORS.buildingRoof.length)];
-    const windows = [];
-    const cols = Math.max(2, Math.floor(w / 34));
-    const rows = Math.max(2, Math.floor(h / 34));
-    for (let cx = 0; cx < cols; cx++) {
-      for (let cy = 0; cy < rows; cy++) {
-        windows.push({
-          x: x + 12 + cx * ((w - 24) / Math.max(1, cols - 1 || 1)),
-          y: y + 12 + cy * ((h - 24) / Math.max(1, rows - 1 || 1)),
-          lit: rng() < 0.35,
+  for (let by = 0; by < GRID; by++) {
+    for (let bx = 0; bx < GRID; bx++) {
+      const x0 = bx * PITCH + ROAD / 2;
+      const y0 = by * PITCH + ROAD / 2;
+      const w = BLOCK, h = BLOCK;
+      const key = bx + ',' + by;
+      let kind = 'buildings';
+      if (by === GRID - 1) kind = 'beach';
+      else if (bx === GRID - 1 && by <= 3) kind = 'marina';
+      else if (key === '7,7') kind = 'plaza';
+      else if (parks.has(key)) kind = 'park';
+      else if (rng() < 0.12) kind = 'parking';
+
+      const block = { bx, by, kind, x: x0, y: y0, w, h, buildings: [], trees: [] };
+      if (kind === 'buildings') {
+        const n = intRange(rng, 1, 3);
+        for (let i = 0; i < n; i++) {
+          const bw = range(rng, 34, 58);
+          const bh = range(rng, 34, 58);
+          const px = x0 + range(rng, 4, Math.max(5, w - bw - 4));
+          const py = y0 + range(rng, 4, Math.max(5, h - bh - 4));
+          block.buildings.push({
+            x: px, y: py, w: bw, h: bh,
+            hgt: intRange(rng, 8, 34),
+            color: pick(rng, ROOFS),
+          });
+        }
+      } else if (kind === 'park') {
+        const n = intRange(rng, 6, 10);
+        for (let i = 0; i < n; i++) {
+          block.trees.push({ x: x0 + range(rng, 8, w - 8), y: y0 + range(rng, 8, h - 8), r: range(rng, 6, 11) });
+        }
+        if (rng() < 0.6) block.pond = { x: x0 + w * 0.3, y: y0 + h * 0.3, w: w * 0.4, h: h * 0.35 };
+      } else if (kind === 'plaza') {
+        block.buildings.push({
+          x: x0 + w * 0.2, y: y0 + h * 0.2, w: w * 0.6, h: h * 0.6,
+          hgt: 40, color: COLORS.roofB, hall: true,
         });
+        block.trees.push({ x: x0 + 14, y: y0 + 14, r: 9 });
+        block.trees.push({ x: x0 + w - 14, y: y0 + 14, r: 9 });
+        block.trees.push({ x: x0 + 14, y: y0 + h - 14, r: 9 });
+        block.trees.push({ x: x0 + w - 14, y: y0 + h - 14, r: 9 });
+      }
+      city.blocks.push(block);
+    }
+  }
+
+  // Sea: a band along the very south edge, and the marina basin top-east.
+  city.water.push({ x: 0, y: SIZE - 42, w: SIZE, h: 42 });
+  city.water.push({ x: SIZE - WORLD.MARINA_W, y: 0, w: WORLD.MARINA_W, h: 4 * PITCH });
+  return city;
+}
+
+export function blockCenter(city, bx, by) {
+  const { ROAD, PITCH } = WORLD;
+  return { x: bx * PITCH + ROAD / 2 + WORLD.BLOCK / 2, y: by * PITCH + ROAD / 2 + WORLD.BLOCK / 2 };
+}
+
+export function isRoad(city, x, y) {
+  const { ROAD, PITCH, SIZE } = WORLD;
+  if (x < 0 || y < 0 || x > SIZE || y > SIZE) return false;
+  const half = ROAD / 2;
+  const fx = ((x % PITCH) + PITCH) % PITCH;
+  const fy = ((y % PITCH) + PITCH) % PITCH;
+  return fx < half || fx > PITCH - half || fy < half || fy > PITCH - half;
+}
+
+export function nearestRoadPoint(city, x, y) {
+  const { PITCH } = WORLD;
+  const cx = Math.round(x / PITCH) * PITCH;
+  const cy = Math.round(y / PITCH) * PITCH;
+  // Snap to the closer of the vertical / horizontal street through the point.
+  const dx = Math.abs(x - cx);
+  const dy = Math.abs(y - cy);
+  if (dx <= dy) return { x: cx, y: clamp(y, 0, WORLD.SIZE) };
+  return { x: clamp(x, 0, WORLD.SIZE), y: cy };
+}
+
+export function randomRoadPoint(city, rng) {
+  const { GRID, PITCH, SIZE } = WORLD;
+  const vertical = rng() < 0.5;
+  const line = intRange(rng, 0, GRID) * PITCH;
+  const along = range(rng, 40, SIZE - 40);
+  return vertical ? { x: line, y: along } : { x: along, y: line };
+}
+
+export function inWater(city, x, y) {
+  return city.water.some((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
+}
+
+// Push a circle out of every building and water rect. Returns corrected pos.
+export function collideCircle(city, x, y, r) {
+  for (const b of city.blocks) {
+    for (const bd of b.buildings) {
+      const nx = clamp(x, bd.x, bd.x + bd.w);
+      const ny = clamp(y, bd.y, bd.y + bd.h);
+      const dx = x - nx, dy = y - ny;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < r * r) {
+        if (d2 > 0.01) {
+          const d = Math.sqrt(d2);
+          x = nx + (dx / d) * r;
+          y = ny + (dy / d) * r;
+        } else {
+          // Centre inside the rect: push out along the smallest penetration.
+          const pl = x - bd.x + r, pr = bd.x + bd.w - x + r;
+          const pt = y - bd.y + r, pb = bd.y + bd.h - y + r;
+          const m = Math.min(pl, pr, pt, pb);
+          if (m === pl) x = bd.x - r;
+          else if (m === pr) x = bd.x + bd.w + r;
+          else if (m === pt) y = bd.y - r;
+          else y = bd.y + bd.h + r;
+        }
       }
     }
-    return { x, y, w, h, color, windows, hgt: 1 + Math.floor(rng() * 3) };
   }
-
-  isOnRoad(x, y) {
-    const half = ROAD_W / 2;
-    for (const rx of this.roadsX) if (Math.abs(x - rx) < half) return true;
-    for (const ry of this.roadsY) if (Math.abs(y - ry) < half) return true;
-    return false;
-  }
-
-  isBeach(x, y) {
-    return y > WORLD - BEACH_H;
-  }
-
-  isSea(x, y) {
-    return y > WORLD - 70;
-  }
-
-  buildingAt(x, y) {
-    for (const b of this.buildings) {
-      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b;
+  for (const w of city.water) {
+    const nx = clamp(x, w.x, w.x + w.w);
+    const ny = clamp(y, w.y, w.y + w.h);
+    const dx = x - nx, dy = y - ny;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < r * r && d2 > 0.01) {
+      const d = Math.sqrt(d2);
+      x = nx + (dx / d) * r;
+      y = ny + (dy / d) * r;
     }
-    return null;
   }
-
-  // Nearest road centre coordinate on the given axis.
-  nearestRoadX(x) {
-    let best = this.roadsX[0];
-    for (const rx of this.roadsX) if (Math.abs(rx - x) < Math.abs(best - x)) best = rx;
-    return best;
-  }
-
-  nearestRoadY(y) {
-    let best = this.roadsY[0];
-    for (const ry of this.roadsY) if (Math.abs(ry - y) < Math.abs(best - y)) best = ry;
-    return best;
-  }
-
-  // Snap a point to the nearest road centre line (used for traffic spawns).
-  snapToRoad(x, y) {
-    const dx = Math.abs(x - this.nearestRoadX(x));
-    const dy = Math.abs(y - this.nearestRoadY(y));
-    if (dx < dy) return { x: this.nearestRoadX(x), y, vertical: true };
-    return { x, y: this.nearestRoadY(y), vertical: false };
-  }
+  x = clamp(x, r, WORLD.SIZE - r);
+  y = clamp(y, r, WORLD.SIZE - r);
+  return { x, y };
 }
